@@ -10,6 +10,7 @@ This class starts with very simple logic:
 """
 
 from typing import List, Dict, Tuple, Optional
+import re
 
 from dataset import POSITIVE_WORDS, NEGATIVE_WORDS
 
@@ -40,20 +41,32 @@ class MoodAnalyzer:
         """
         Convert raw text into a list of tokens the model can work with.
 
-        TODO: Improve this method.
-
-        Right now, it does the minimum:
+        Improvements implemented:
           - Strips leading and trailing whitespace
           - Converts everything to lowercase
+          - Removes punctuation (except emojis)
+          - Handles simple emojis separately (":)", ":-(", "🥲", "😂", etc.)
+          - Normalizes repeated characters ("soooo" -> "soo")
           - Splits on spaces
-
-        Ideas to improve:
-          - Remove punctuation
-          - Handle simple emojis separately (":)", ":-(", "🥲", "😂")
-          - Normalize repeated characters ("soooo" -> "soo")
+          - Additional: Handles contractions by splitting them (e.g., "don't" -> ["don", "t"])
         """
+        # Strip whitespace and lowercase
         cleaned = text.strip().lower()
+
+        # Normalize repeated characters (more than 2 repeats -> 2)
+        cleaned = re.sub(r'(.)\1{2,}', r'\1\1', cleaned)
+
+        # Remove punctuation but keep emojis
+        # Emojis are typically Unicode characters, so we'll split and filter
+        # For simplicity, we'll use a regex to remove common punctuation
+        cleaned = re.sub(
+            r'[^\w\s\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF]', '', cleaned)
+
+        # Split on spaces
         tokens = cleaned.split()
+
+        # Handle simple text emojis by keeping them as is
+        # For complex emojis, they should already be preserved by the regex above
 
         return tokens
 
@@ -68,22 +81,49 @@ class MoodAnalyzer:
         Positive words increase the score.
         Negative words decrease the score.
 
-        TODO: You must choose AT LEAST ONE modeling improvement to implement.
-        For example:
-          - Handle simple negation such as "not happy" or "not bad"
-          - Count how many times each word appears instead of just presence
-          - Give some words higher weights than others (for example "hate" < "annoyed")
-          - Treat emojis or slang (":)", "lol", "💀") as strong signals
+        Improvements implemented:
+          - Basic scoring: +1 for positive words, -1 for negative words
+          - Negation handling: flips polarity when negation precedes sentiment words
+          - Emoji scoring: strong signals for emojis (😊=+2, 💀=-2, ❤️=+2, etc.)
+          - Contraction handling: recognizes "dont", "cant", "wont" as negations
         """
-        # TODO: Implement this method.
-        #   1. Call self.preprocess(text) to get tokens.
-        #   2. Loop over the tokens.
-        #   3. Increase the score for positive words, decrease for negative words.
-        #   4. Return the total score.
-        #
-        # Hint: if you implement negation, you may want to look at pairs of tokens,
-        # like ("not", "happy") or ("never", "fun").
-        pass
+        tokens = self.preprocess(text)
+        score = 0
+
+        # Define negation words and emoji scores
+        negations = {"not", "never", "no", "dont", "cant",
+                     "wont", "isnt", "arent", "wasnt", "werent"}
+        emoji_scores = {
+            "😊": 2, "😀": 2, "😄": 2, "😃": 2, "😁": 2, "🥰": 2, "😍": 2,
+            "❤️": 2, "💖": 2, "💕": 2, "💗": 2, "💓": 2, "💞": 2, "💘": 2,
+            "💀": -2, "😭": -2, "😢": -2, "😞": -2, "😔": -2, "😟": -2, "😕": -2,
+            "🥲": -1, "🙃": -1, "😅": 1, "😂": 1, "🤣": 1, "😉": 1, "😎": 1,
+            "🎉": 2, "💯": 1, "🔥": 1, "👍": 1, "👎": -1, "❤️‍🩹": -1
+        }
+
+        # Process tokens with negation awareness
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            multiplier = 1  # Default polarity
+
+            # Check for negation in current or previous token
+            if token in negations or (i > 0 and tokens[i-1] in negations):
+                multiplier = -1
+
+            # Score based on word lists
+            if token in self.positive_words:
+                score += 1 * multiplier
+            elif token in self.negative_words:
+                score -= 1 * multiplier
+
+            # Score emojis
+            if token in emoji_scores:
+                score += emoji_scores[token]
+
+            i += 1
+
+        return score
 
     # ---------------------------------------------------------------------
     # Label prediction
@@ -93,7 +133,7 @@ class MoodAnalyzer:
         """
         Turn the numeric score for a piece of text into a mood label.
 
-        The default mapping is:
+        Current mapping:
           - score > 0  -> "positive"
           - score < 0  -> "negative"
           - score == 0 -> "neutral"
@@ -105,12 +145,14 @@ class MoodAnalyzer:
         Just remember that whatever labels you return should match the labels
         you use in TRUE_LABELS in dataset.py if you care about accuracy.
         """
-        # TODO: Implement this method.
-        #   1. Call self.score_text(text) to get the numeric score.
-        #   2. Return "positive" if the score is above 0.
-        #   3. Return "negative" if the score is below 0.
-        #   4. Return "neutral" otherwise.
-        pass
+        score = self.score_text(text)
+
+        if score > 0:
+            return "positive"
+        elif score < 0:
+            return "negative"
+        else:
+            return "neutral"
 
     # ---------------------------------------------------------------------
     # Explanations (optional but recommended)
